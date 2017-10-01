@@ -1,0 +1,1212 @@
+Exploratory Data Analysis of the Athletes from Rio 2016 Olympic Games 
+========================================================
+### by Ananda Sales Ribeiro
+```{r setup, global_options, include=FALSE}
+#Setting for all the document
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+
+```
+
+## Introduction
+This report performs an Exploratory Data Analysis over a dataset that contains information about athletes who have competed in Rio 2016 Olympic Games.  
+Several aspects may influence an athlete performance, such as the training, health, welfare, physical characteristics, determination and support from the family. In this project it will be analyzed how some characteristics of the athletes are related to their results in the Olympic Games and which are the characteristics of the athletes with better results. The following features will be analyzed:  
+Nationality, age, height and weight. The results will be measured through the number and type of medals won.  
+
+The criteria used to evaluate if an athlete had a better result than the other will be the total number of medals won and the type of medals won (gold, silver of bronze).
+
+```{r packages}
+#Setting the work directory 
+setwd('~/aulas/Udacity/Data_Analyst_Nanodegree/Exploratory_Data_Analysis/Project_4')
+#Libraries:
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(GGally)
+library(gridExtra)
+library(grid)
+```
+
+```{r Load_the_Data}
+# Load the Data
+rio_athletes <- read.csv('athletes.csv')
+```
+
+## Dataset
+
+The dataset athletes.csv was downloaded from the Kaggle website through the link below:  
+https://www.kaggle.com/rio2016/olympic-games
+
+This is the description of the dataset: "This dataset consists of the official statistics on the 11,538 athletes and 306 events at the 2016 Olympic Games in Rio de Janeiro. The athletes file includes the name, nationality (as a three letter IOC country code), gender, age (as date of birth), height in meters, weight in kilograms, sport, and quantity of gold, silver, and/or bronze medals won for every Olympic athlete at Rio."  
+The events will not be analyzed in this project. 
+
+All the variables in the dataset are listed below:
+```{r variable info}
+names(rio_athletes)
+```
+
+And this is the structure of the dataframe:
+```{r data structure}
+str(rio_athletes)
+```
+
+The levels of factors of the variable sex are 'female' and 'male'.  
+The levels for the variable sport are listed below:
+```{r factors}
+levels(rio_athletes$sport)
+```
+
+Next, it will be verified if there are any missing values in this dataset.
+```{r}
+sum(is.na(rio_athletes))
+```
+Yes, there are 989 missing values. Some of the rows with missing values will be checked below.
+```{r}
+head(rio_athletes[!complete.cases(rio_athletes),], 10)
+```
+
+The missing values are mainly in the columns height and weight, which are very important for this analysis. All rows with missing values will be removed from the dataframe.
+```{r}
+rio_athletes <- na.omit(rio_athletes)
+```
+
+## Data Analysis
+
+Before starting the analysis, some new variables will be created in the dataframe. One variable called age based on the data from the variable dob (date of birth) and one variable with the total number of medals for each athlete (total.medals). 
+
+A third variable will be created to reflect how many medals of each type the athlete won (medal.score). This variable will work as a score. For each gold medal, the athlete will receive 100 points, for each silver 10 points, and for the bronze medals 1 point. The gold medal reflects the best performance of an athlete. The silver and bronze medals will be considered tiebrakers in the evaluation of the performance through this variable.  
+
+No athlete won more than 10 medals, in this way the number of bronze medals will never represent a higher score than a silver medal and the number of silver medals will not have a greater score than the gold medal.  
+
+```{r}
+#Creating a variable that counts the total number of medals
+rio_athletes <- rio_athletes %>% mutate(total.medals = gold+silver+bronze)
+
+#Turning date of birth into age.
+age_from_dob <- function(x) {
+  #The variable dob is classified as a factor. It must first be transformed into a date.
+  dob <- as.Date(x, format = "%m/%d/%y")
+  dob.year <- year(dob)
+  #If a year if below 1970, subtract 100.
+  year(dob) <- ifelse(dob.year > 2016, dob.year - 100, dob.year )
+  #The reference for calculating age will be the first day of the olympic.
+  olympic <- as.Date('08/05/16', format = "%m/%d/%y")
+  #DIfference in days between the two dates:
+  date.diff <- olympic - dob
+  #Extracting the year:
+  age = floor(as.double(date.diff)/365)
+  return(age)
+}
+
+#Creating a new variable called age using the new function:
+rio_athletes <- rio_athletes %>% mutate(age = age_from_dob(dob))
+
+#Creating a score based on the medal types won:
+rio_athletes <- rio_athletes %>% mutate(medal.score = 
+                                          (100*gold) + (10*silver) + (bronze))
+
+#Checking the dataframe header to verify if the two transformations worked correctly:
+head(rio_athletes, 10)
+
+```
+
+Checking that no athlete won more than 10 medals:
+
+```{r}
+#Checking that no athlete received more than 10 medals of any type
+rio_athletes[rio_athletes$total.medals >10, ]
+```
+
+The new variables were properly created.
+
+
+### Athletes performance
+
+In this section, the criteria used to evaluate the athletes performance will be discussed and analyzed. Starting with the medal.score.  
+
+```{r}
+ggplot(aes(x = medal.score), 
+       data = rio_athletes)+
+  geom_histogram(binwidth = 10)+
+  scale_y_sqrt()
+```
+
+The y-axis scale was transformed to square root since the data is very concentrated at zero, in order to better visualize the count for the other values.  
+It is possible to notice that the data is very discrete. The table and the summary below show this characteristic.
+
+```{r}
+summary(rio_athletes$medal.score)
+table(rio_athletes$medal.score)
+```
+
+Most athletes got no medals. The data is highly concentrated in zero. A great number of athletes also had scores 1, 10 and 100 which indicates one medal of gold, silver or bronze. All other values have a very low frequency, which indicates that it is very rare to have more than one medal. That will be further investigated.  
+The maximum score is 510. That is clearly an outlier and was achieved by Michael Phelps.  
+
+The 99 percentile of the medal.score is calculated below:
+
+```{r}
+quantile(rio_athletes$medal.score, .99)
+```
+
+99% of the athletes have score 100 or below. The ones with a score greater than 100 are less than 1%. Those are the ones with more than one medal where at least one is gold. They have very high performance.
+
+The next plots and summary will show the distribution of the total number of medals.
+
+```{r}
+ggplot(aes(x = total.medals), data = rio_athletes)+
+  geom_histogram(binwidth = 1)+
+  scale_y_sqrt()
+```
+
+For the total number of medals, the data is also concentrated in the low values.
+
+Summary of the data and table:
+```{r}
+summary(rio_athletes$total.medals)
+table(rio_athletes$total.medals)
+```
+
+This information show how concentrated are the values in zero and one medal. The 99 percentil will be calculated for this variable:
+
+```{r}
+quantile(rio_athletes$total.medals, .99)
+```
+
+99% of the athletes have 2 or less medals. Next it will be calculated the percentil of the ones who won 3 medals.
+
+```{r}
+total.dist <- ecdf(rio_athletes$total.medals)
+total.dist(3)
+```
+
+That is 99.9. The athletes with three or more medals are one in a thousand.  
+The type of sport may influence this result, since some of them have different events and the athletes have the chance to compete for more than one medal (e.g. swimming and gymnastics), while in other sports the athletes can win only one medal (e.g. football). It is possible to see this difference in the following plot.
+
+```{r}
+ggplot(aes(x = sport, y = total.medals), data = rio_athletes)+
+  geom_point(alpha = 1/5, position = position_jitter(h = 0.3, w = 0.3))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Only the following sports have athletes with two or more medals: tennis, table tennis, shooting, gymnastics, fencing, equestrian, cycling, canoe, badminton, athletics, archery and aquatics. That is less than a half of all sports types. Since not all athletes have the possibility of receiving more than one medal, the medal.score criterion is considered more important than the total of medals in order to evaluate an athletes performance. But the total of medals is also an interesting metric, then it will remain being used in the analysis but carefully.
+
+Since there are very low frequency values for 3, 4, 5 and 6 medals, the variable total.medals will be modified in order to have only three categories: 0, 1 and two or more medals. The category "two or more" will represent the top 1% of the values, which are the athletes with the highest performance.  
+A new variable will be created with this modification: total.medals.bucket.
+
+```{r}
+rio_athletes$total.medals.bucket <- cut(rio_athletes$total.medals, 
+                      breaks = c(-1, 0, 1, 6), labels = c('0', '1', '2 or more'))
+summary(rio_athletes$total.medals.bucket)
+```
+
+In this analysis two criteria were used to evaluate the athletes results: the number of medals and the type of medals. According to the type of medals criterion, the top 1% of the athletes have score equal or higher than 100 (which means at least one gold medal) and according to the number of medals criterion, the top 1% of the athletes have at least two medals of any type. The number of medals must be used carefully and only as a complement to the type of medal criterion since not all athletes had the chance to compete for more than one medal.
+
+In the next sessions, the characteristics of the athletes will be related to these variables in order to understand if some of these characteristics could have helped the athlete reach better results.
+
+### Athletes characteristics
+
+In this analysis the scales will be frequently transformed to log10 or square root because the data is very skewed and concentrated at zero.  
+
+**Sex**  
+The first variable of interest to be analyzed will be the athletes sex. The next plot shows frequency polygons for male and female. The frequency of each bin is in percentage and the scale was transformed to log. 
+
+```{r}
+ggplot(aes(x = medal.score, y = ..density.., color = sex), 
+       data = rio_athletes)+
+  geom_freqpoly()+
+  scale_y_log10()
+
+```
+
+The distribution of women score is very similar to the men but it is a little less concentrated in the peaks. Thay may indicate that in the case of men, there are more different athletes receiving one medal, while for women there are more athletes receiving more than one medal. This difference doesn't seem to be significant in this plot.  
+Men an women have nearly equal chances of winning medals, since in most sports they do not compete against each other. There are some differences because there are more men competing and the number of events for each sex is not the same but for this analysis those differences should not have a great influence.  
+Number of male and female athletes in the dataframe:  
+
+```{r}
+summary(rio_athletes$sex)
+```
+
+The objective of the analysis of the variable sex is only to ensure that the distributions do not present great differences.  
+One more plot will be made for this variable, where the total number of medals will be compared. The frequency in this case is the percentage of the total of men and women and the y-axis was transformed using squared root.  
+
+```{r}
+ggplot(aes(x = total.medals.bucket, y = ..count../sum(..count..), fill = sex),
+       data = rio_athletes)+
+  geom_bar(position = 'dodge')+
+  scale_y_sqrt()
+```
+
+The comments made to the previous plot can be observed in this one. There is a higher percentage of male athletes with one medal and a higher percentage of female athletes with two or more medals. The differences are not remarkable and the analysis will continue considering that the distributions for men and women are very similar and will not influence the analysis of the other characteristics.  
+
+**Country**  
+
+The next characteristic to be analyzed is the nationality of the athletes.   
+This feature may influence the training, the investment in the athlete, food habits, cultural habits, among other things.   
+
+Number of unique countries:
+```{r}
+length(unique(rio_athletes$nationality))
+```
+
+Number of unique countries with at least one medal:
+```{r}
+with(rio_athletes[rio_athletes$medal.score > 0, ], 
+     length(unique(nationality)))
+```
+
+As 200 is a huge number of countries to plot, only the countries with at least one medal will be in the next plot. A new dataframe will be created where countries without any medal are removed.
+```{r}
+#Countries with at least one medal:
+countries_w_medal <- with(rio_athletes[rio_athletes$medal.score > 0, ],
+                          unique(nationality))
+
+#Dataframe that countains only countries that have more than one medal.
+rio.countries_w_medal <- subset(rio_athletes, nationality %in% countries_w_medal)
+
+#Checking that the new dataframe have only 82 nationalities:
+length(unique(rio.countries_w_medal$nationality))
+```
+
+The next plot will show the score and total of medals of the athletes of these countries. Some countries were omitted from the x-label in order to make it readable.
+
+```{r}
+ggplot(aes(x = nationality, y = medal.score, color = total.medals.bucket), 
+       data = rio.countries_w_medal)+
+  geom_point(alpha = 1/2, position = position_jitter(h = 0.2, w = 0.1))+
+  scale_y_sqrt()+
+  scale_x_discrete(breaks = 
+                  unique(rio.countries_w_medal$nationality)[seq(1, 82,5)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+Athletes with score higher than 100 are concentrated in about 15 countries, which are apparently the same countries that have athletes with more than one medal (with some exceptions).  
+The green points represent the athletes that won one medal of bronze, silver or gold. These athletes are distributed through all countries, although not all of them have more than one athlete with each medal.  
+
+According to the first analyses, the top 1% of the athletes have score 100 or higher or more than one medal.  
+The number of countries with athletes that have score 100 or higher and their names will be displayed below:
+
+```{r}
+score_100 <- with(subset(rio.countries_w_medal, medal.score >= 100),
+                  unique(nationality))
+#Number of countries
+length(score_100)
+
+#Country names
+score_100
+```
+
+The athletes with score 100 or higher belong to 58 different nationalities. That represents 29% of the total of countries that participated in the olympic games. This is a considerable distribution since these athletes are only 1% of the total. That shows the best performance athletes are not concentrated in a few contries.
+
+Next, it will be shown the number of countries and their names for the ones with athletes that received more than one medal.
+
+```{r}
+medals <- with(subset(rio.countries_w_medal, 
+                        total.medals.bucket == '2 or more'), 
+                 unique(nationality))
+#Number of countries
+length(medals)
+
+#Country names
+medals
+```
+
+Athletes with two or more medals belong to 27 different countries. This number is low considering that 200 countries participated in the olympic games. That represents only 13.5% of all the countries.  
+It will be verified if all this countries are in the previous list:
+
+```{r}
+#Countries with athletes that have more than one medal, but do not have score 100 or higher:
+setdiff(medals, score_100)
+```
+
+Only one country have athletes with more than one medal but none with score 100 of higher: ALG.  
+
+This analysis considered each athletes performance, but it didn't consider that one country could have several athletes with one gold medal, for example.  
+
+A line of average medal.score for each country will be added to the previous plot.
+
+```{r}
+ggplot(aes(x = nationality, y = medal.score, color = total.medals.bucket,
+           group = 1), 
+       data = rio.countries_w_medal)+
+  geom_point(alpha = 1/2, position = position_jitter(h = 0.2, w = 0.1))+
+  scale_y_sqrt()+
+  scale_x_discrete(breaks = 
+                  unique(rio.countries_w_medal$nationality)[seq(1, 82, 5)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  geom_line(stat = 'summary', fun.y = mean, color = 'black')
+```
+
+This is an interesting metric, since it shows the average performance of all athletes from the same country. The previous analysis considered the performance of each athlete individually, while this one considers the performance of the group. It is necessary to be carefull with this result since the number of athletes from each country will affect the mean. 
+
+Next, the data will be grouped by nationaly and some summaries calculated.
+
+```{r}
+countries_w_medal.grouped <- rio.countries_w_medal %>%
+  group_by(nationality) %>%
+  summarise(mean_score = mean(medal.score),
+            total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  arrange(desc(total_score)) 
+
+```
+
+Besides the mean score, it was also computed the total score for each nationality, the total number of medals and the mean number of medals.
+
+First, it will be verified if some of these countries have less than 10 athletes.
+
+```{r}
+countries_w_medal.grouped[countries_w_medal.grouped$n < 10,]
+```
+
+There are 6 nationalities with less than 10 athletes, but their mean_score is not very high, except for IOA. The Individual Olympic Athletes (IOA) may affect the results, since it has four athletes and two medals. 
+
+The data from these summaries can be observed in the plots below.
+
+```{r}
+#Plotting the summaries:
+
+p1 <- ggplot(aes(x = nationality, y = total_score, group = 1), 
+       data = countries_w_medal.grouped)+
+  geom_line()+
+  scale_x_discrete(breaks=
+              unique(countries_w_medal.grouped$nationality)[seq(1, 82, 13)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2 <- ggplot(aes(x = nationality, y = mean_score, group = 1), 
+       data = countries_w_medal.grouped)+
+  geom_line()+
+  scale_x_discrete(breaks=
+              unique(countries_w_medal.grouped$nationality)[seq(1, 82, 13)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p3 <- ggplot(aes(x = nationality, y = total_medals, group = 1), 
+       data = countries_w_medal.grouped)+
+  geom_line()+
+  scale_x_discrete(breaks=
+              unique(countries_w_medal.grouped$nationality)[seq(1, 82, 13)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p4 <- ggplot(aes(x = nationality, y = mean_medals, group = 1), 
+       data = countries_w_medal.grouped)+
+  geom_line()+
+  scale_x_discrete(breaks=
+              unique(countries_w_medal.grouped$nationality)[seq(1, 82, 13)])+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+
+It is possible to notice that the plot of total_medals and total_score have a very similar shape, while mean_score and mean_medals also have a similar shape. The last two will be affected by the number of athletes with each nationality.  
+In a general way, the countries with a high number of medals seems to the be the same that have a high score. The peaks are almost in the same places.  
+These data will be further analyzed.
+
+The new dataframe was ordered according to the sum of medal.scores (total_score) of the athletes. The countries with highest total scores are shown below:
+
+```{r}
+head(countries_w_medal.grouped)
+```
+
+These are the countries with most athletes with high scores.  
+All this countries appeared in the previous list of countries with athletes that received two or more medals.
+
+Below is the list of the six nationalities with the highest mean scores.
+
+```{r}
+countries_w_medal.grouped <- arrange(countries_w_medal.grouped, 
+                                     desc(mean_score)) 
+
+head(countries_w_medal.grouped$nationality)
+```
+
+The IOA appeared in the list, as expected, but it is difficult to say in its case that the nationality influenced the performance, since there were only four athletes in this group.  
+Fiji had a high score because many of their athletes got one medal. That happened because Fiji won only one gold medal but in a team sport: rugby. All the athletes of the team got one medal and that is what appeared in this metric.
+
+Next, the six countries with the highest total of medals:
+
+```{r}
+countries_w_medal.grouped <- arrange(countries_w_medal.grouped, 
+                                     desc(total_medals)) 
+
+head(countries_w_medal.grouped$nationality)
+```
+
+This list is basically the same of the one with countries with highest total scores. Only FRA is new.  
+
+Next, the six countries with highest mean number of medals. In this case, the number of athletes will also influence the result.
+
+```{r}
+countries_w_medal.grouped <- arrange(countries_w_medal.grouped, 
+                                     desc(mean_medals)) 
+
+head(countries_w_medal.grouped$nationality)
+```
+
+IOA appeared in this list, as expected, and SRB wasn't in the previous lists. SRB is in a similar situation as Fiji. Two of the medals won by the athletes with this nationality were in team sports and it had a low total number of athletes (103). Because of that, the mean number of medals is very high.  
+JAM, USA, RUS and GBR were also in the previous list.
+
+In the analysis of the individual performance of the athletes it was observed that the top performance athletes are distributed in around 30% of the countries, suggesting that the nationality should not affect the athletes results. However the analysis of the performance of the group of athletes from each country showed that most high performance athletes come from a few countries: USA, RUS, GBR, GER, CHN and JAM.  
+The conclusion of this analysis is that although high performance athletes may rise from any country, some countries are more likely to have high performance athletes. It seems the nationality influences the athletes performance.
+
+**Age**
+
+In this section it will be analyzed if the age is related with the athletes results.
+
+First a histogram with the distribution of age will be created:
+
+```{r}
+ggplot(aes(x= age), data = rio_athletes)+
+  geom_histogram(binwidth = 1)
+```
+
+It seems most of the athletes are around 25 years old. Some outliers can be observed, like the one over 60. And there are some very young athletes, under 15.  
+Two boxplots will be made in order to verify if the age distribution changes with sex or with sport.
+
+```{r}
+#Boxplot:
+ggplot(aes(y= age, x=sex), data = rio_athletes)+
+  geom_boxplot()
+
+#Summary:
+by(rio_athletes$age,rio_athletes$sex, summary)
+```
+
+The plot and summary shows that the men were in average one year older than the women. This difference will not have a great impact in the following analyses.  
+The oldest athlete was 62 years old and the youngest 13.  
+
+```{r}
+ggplot(aes(y= age, x=sport), data = rio_athletes)+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+The boxplot of age and sport shows that there are some variations in the distribution of age for each sport. Some cases stand out: the athletes of the sports equestrian, golf and shooting are in average older than the others, while the ones of gymnastics are much younger.   
+No deep analysis will be developed from this plot, but this characteristic may influence the next analyses and should be considered.  
+
+Now it will be verified how the athletes performance is related to age. The data will be grouped by age in a new dataframe.
+
+```{r}
+athletes_age.grouped <- rio_athletes %>%
+  group_by(age) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  arrange(desc(total_score)) 
+```
+
+Plots of the the total score and total number of medals for each age will be created: 
+
+```{r}
+#Total score vs age
+ggplot(aes(x = age, y = total_score), data = athletes_age.grouped)+
+  geom_line()
+
+#Total number of medals vs age
+ggplot(aes(x = age, y = total_medals), data = athletes_age.grouped)+
+  geom_line()
+
+```
+
+These plots show that the medals are most concentrated with athletes of 20 to 30 years. However, that is the age of the majority of the athletes, there are more individuals in this group. In this way, it makes more sense to calculate the mean score and mean number of medals for each age. That will be shown in the plots below.
+
+```{r}
+#Mean score vs age
+ggplot(aes(x = age, y = mean_score), data = athletes_age.grouped)+
+  geom_line()
+
+#Mean number of medals vs age
+ggplot(aes(x = age, y = mean_medals), data = athletes_age.grouped)+
+  geom_line()
+```
+
+These values are very close to zero because most of the athletes had no medals.  
+It seems there is no clear correlation between age the the athletes result.  
+It was observed high scores and number of medals for the athletes over 45. That will be examined observing the dataframe.
+
+```{r}
+athletes_age.grouped <- arrange(athletes_age.grouped ,age) 
+
+tail(athletes_age.grouped, 15)
+```
+
+In the case of the age 58, there was only one athlete and he got a gold medal. That is why there is a peak at this age.  
+In the case of the ages 46 to 54, some athletes in these ages got medals (including gold medal, which makes them the top 1%) but there are only a few athletes in each of these groups. The larger one has 13. Because of that the mean was high for these cases.  
+
+The number of individuals in each group from 20 to 30 years will be shown below:
+
+```{r}
+athletes_age.grouped[athletes_age.grouped$age >= 20 & 
+                       athletes_age.grouped$age <=30, c('age', 'n')]
+```
+
+There is around 800 individuals in each group and most of them got no medals. That is why the mean is lower in these cases.  
+It is not possible to affirm that older athletes have better performance since the sample of these athletes is very small.
+
+The older athletes will be removed from the plot of mean score, in order to better visualize the correlation.
+
+```{r}
+#Mean score vs age
+ggplot(aes(x = age, y = mean_score), 
+       data = subset(athletes_age.grouped, age < 46))+
+  geom_line()
+```
+
+There are two age values with very low mean score (around 17 and 39) but all other score mean values seem very close and there is no trend in the plot. There is no correlation between age and an athletes performance.
+
+One more plot will be made regarding this topic. The previous investigation evaluated the age of the athletes in a general way. This time it will be verified if the age of the best athletes varies with the sports.  
+In order to do this investigation, one new variable will be created that separates the athletes in three groups:  
+ - The top 1% athletes (TOP1): the ones with score 100 or higher.  
+ - The medium performance athletes (MED): the ones that won medals but the score is less than 100.  
+ - The bad performance ones (BAD): no medals.  
+ 
+ The new variable will be called performance.
+ 
+```{r}
+#Variable to determine the performance classification of the athlete:
+
+rio_athletes <- rio_athletes %>% 
+  mutate(performance = ifelse(medal.score >=100, 'TOP1',
+                              ifelse(medal.score >0 & medal.score <100, 
+                                     'MED', 'BAD')))
+
+head(rio_athletes)
+```
+
+The next plot shows the athletes age for each sport, colored by performance. The black line indicates the mean age of all athletes for each sport.
+
+```{r}
+#Arranging the dataframe by the meadl.score in order to plot higher score athletes later.
+rio_athletes <- arrange(rio_athletes, medal.score)
+
+#Plot
+ggplot(aes(x = sport, y = age, group = 1, colour = performance), 
+       data = rio_athletes)+
+  geom_point(alpha = 1/2, position = position_jitter(h=0.5, w= 0.4))+
+  geom_line(stat = 'summary', fun.y = mean)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  scale_colour_manual(values=c("#FFFF00", "#0066FF", "#FF3300"),
+                      guide = guide_legend(reverse = T))
+
+```
+
+This visualization shows that there is no pattern regarding age, performance and sports.  
+The athletes over 45 years old with medals that appeared in the previous plots were from the sports that have in average older athletes (equestrian and shooting).   
+Most top 1% athletes for some sports seems to be older than the average that competed (like handball and tennis). In the case of other sports, they are in general younger than the average (football, taekwondo and weghtlifiting). However in most cases the top 1% of the athletes are spread in all the age range.  
+This investigation concluded that there is no clear correlation between age and the athletes results.
+
+**Height**
+
+This and the next section will evaluate how height and weight are correlated with the athletes results in the Olympic Games. Men and women will be analyzed separatelly in these cases since they have different physical characteristics. The result may be different for each sport, in this way this variable must also be taken into consideration.
+
+First, histograms of height will be created.
+
+```{r}
+ggplot(data = rio_athletes, aes(x = height, fill = sex)) +
+  geom_histogram(alpha = 0.5, position = 'identity')
+```
+
+It is clear that men are taller than women. The following summary will show this difference:
+
+```{r}
+by(rio_athletes$height, rio_athletes$sex, summary)
+```
+
+In average, men are around 10cm taller than women.  
+Most women have height between 1.64 and 1.70m and men have between 1.76 and 1.89m.   
+
+These two cases must be analyzed separately.  
+
+Now, it will be observed if there are differences in height for each sport.
+
+```{r}
+ggplot(aes(y = height, x = sport, fill = sex), data = rio_athletes)+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+There are some differences in the height distribution according to the sport. It is possible to observe that female and male follow similar patterns.  
+Basketball and volleyball are the sports with taller athletes for both sexes, followed by handball and rowing.  
+The sports with shorter athletes are gymnastics and weightlifting.
+
+An analysis similar to the one done for age will be executed.
+
+```{r}
+athletes_height.grouped <- rio_athletes %>%
+  group_by(sex, sport, height) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  ungroup() %>%
+  ungroup() %>%
+  arrange(desc(total_score)) 
+```
+
+In order to join the men and women data in the same analysis (and make the plots simpler) the values of height will be standardized for each sex. The mean height will be used for that. All women height will be divided by 1.70 and all men height by 1.824.
+
+```{r}
+athletes_height.grouped <- athletes_height.grouped %>% 
+  mutate(height.std = ifelse(sex == 'female', height/1.7, height/1.824))
+```
+
+Checking if the new dataframe was properly created:
+
+```{r}
+head(athletes_height.grouped)
+```
+
+This time the plots of total score and total medals will not be made, since it was already observed that these metrics are not interesting.  
+
+Plots of the the mean score will be created: 
+
+```{r}
+#Mean score vs height
+ggplot(aes(x = sport, y = height.std), data = athletes_height.grouped)+
+  geom_point(aes(size = mean_score))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Some mean score with value 100 appeared in the plot. That may indicate several people with a gold medal, but it probably indicates that there is a very small group, maybe only one person with that height.  
+Checking if there are groups smaller then 5 in the dataframe:
+
+```{r}
+nrow(athletes_height.grouped[athletes_height.grouped$n <5,'n'])
+```
+
+There are 963 very small groups that are probably affecting the results.  
+
+The grouped dataframe will be rebuilt without grouping by sport. Althought this is an important variable, the investigation of the mean score must be general for all sports.
+
+```{r}
+athletes_height.grouped <- rio_athletes %>%
+  mutate(height.std = ifelse(sex == 'female', height/1.7, height/1.824))%>%
+  group_by(height.std) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  arrange(desc(mean_score)) 
+```
+
+Checking the head of the dataframe:
+
+```{r}
+head(athletes_height.grouped)
+```
+
+Now the mean score can be evaluated.
+
+```{r}
+ggplot(aes(x = height.std, y = mean_score), data = athletes_height.grouped)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+```
+
+The previous plot shows the variation of the mean score with the standardized height. The value 1 means a height equals to the average.  
+The colored points indicate the number of individuals in each group. That may affect the mean, as observed before.  
+In the extremes it is possible to notice that there is only a few individuals and the mean is very high. These points are marked in red and the result must not be considered in the analysis since the sample is very small. However it shows that there are people from all the range of heights winning medals.  
+
+The same plot will be created for the mean number of medals.
+
+```{r}
+ggplot(aes(x = height.std, y = mean_medals), data = athletes_height.grouped)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+```
+
+A very similar behavior as the previous plot could be observed.  
+
+Despite the peaks in the extremes, it is possible to see a trend in the values around the height 1. It seems the mean score and mean number of medals increase with height. These plots will be rebuilt removing groups with 10 or less individuals.
+
+```{r}
+#Subset of the dataframe removing groups with 10 or less athletes
+height.groups_over_10 <- subset(athletes_height.grouped, n>10)
+
+p1 <- ggplot(aes(x = height.std, y = mean_score), 
+             data = height.groups_over_10)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+
+p2 <- ggplot(aes(x = height.std, y = mean_medals), 
+             data = height.groups_over_10)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+
+grid.arrange(p1, p2, ncol = 1)
+```
+
+It seems there is a linear trend. Pearson correlation coefficient will be calculated and tested.
+
+```{r}
+cor.test(height.groups_over_10$height.std, 
+         height.groups_over_10$mean_score, 
+         alternative = 'two.sided',
+         method = 'pearson')
+```
+
+The Pearson correlation coefficient is 0.4898787.  
+According to the two-tailed hypothesis test, the p-value is 5.409e-07 which means it is statistically significant. There is a correlation between the athletes height and mean medal score. Taller athletes are more likely to have a better performance in general for all sports.  
+The true correlation 95% Confidence Interval is (0.3189167, 0.6299666).  
+
+This same test will be done with the mean number of medals.
+
+```{r}
+cor.test(height.groups_over_10$height.std, 
+         height.groups_over_10$mean_medals, 
+         alternative = 'two.sided',
+         method = 'pearson')
+```
+
+The correlation is even stronger than in the case of the mean score. The Pearson correlation coefficient is 0.5801552. The hypothesis test also indicated that this correlation is statistically significant.
+
+This correlation may vary from one sport to another. Next the correlation will be calculated for each sport. First the data will be transformed.
+
+```{r}
+#New dataframe grouped by sports and standard height
+athletes_sport_height.grouped <- rio_athletes %>%
+  mutate(height.std = ifelse(sex == 'female', height/1.7, height/1.824))%>%
+  group_by(sport, height.std) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  ungroup()
+
+#Removing small groups.
+athletes_sport_height.grouped <- subset(athletes_sport_height.grouped, n>3)
+
+#The dataframe must be modified and will be converted to a wide format.
+athletes_sport_height.grouped <- athletes_sport_height.grouped %>%
+  spread(sport, mean_score)
+
+#Checking part of the new dataframe:
+head(athletes_sport_height.grouped)
+```
+
+In this new dataframe, the groups tend to be smaller, then groups with more than 3 athletes were accepted.   
+Now the correlation for each case will be calculated:
+
+```{r}
+cor(as.matrix(athletes_sport_height.grouped[, 1]),
+    as.matrix(athletes_sport_height.grouped[, 6:32]),
+    use = 'pairwise.complete.obs')
+```
+
+Hypothesis tests were not made in this cases, but it is possible to observe that for some sports it seems there is no correlation between height and the mean medal score (e.g. cycling, equestrian, golf, shooting, tennis, weightlifting and wrestling). In all these cases, the Pearson correlation coefficient is very low.  
+In the other hand, some sports presented very strong correlation between height and mean score: aquatics, canoe, gymnastics, handball and modern pentathlon.  
+And some of them presented a negative correlation, which means the shorter athletes are more likely to win medals: archery, gymnastics, hockey, judo, and table tennis.  
+
+The investigation of height showed that there is a correlation between height and the athletes performance. In a general way, taller athletes have a better performance, but that may change from one sport to another.
+
+Before moving to the analysis of weight, there is one more investigation to be done. Maybe the countries that concentrate most athletes with high performance are also the ones with taller athletes. If that is the case, the correlation between height and mean score could be caused by the nationality of the athletes and not by the height itself. That will be investigated next.  
+
+The data will be grouped by nationality and the mean and median height will be calculated. The 15 countries with higher mean standardized height will be shown:
+
+```{r}
+country_height.grouped <- rio_athletes %>%
+  mutate(height.std = ifelse(sex == 'female', height/1.7, height/1.824))%>%
+  group_by(nationality) %>%
+  summarise(mean_height = mean(height.std),
+            median_height = median(height.std),
+            n = n()) %>%
+  arrange(desc(mean_height))
+
+country_height.grouped[1:15,'nationality']
+```
+
+During the nationality investigation, it was observed that the following countries concentrate athletes with high performance: USA, RUS, GBR, GER, CHN and JAM. None of them is in the list of the countries with the tallest athletes.  
+In this way, it is possible to conclude that the nationality and height are both related to the athlete performance in different ways. One is not influencing the other (at least not in a relevant way).
+
+**Weight**
+
+The same analysis made for height will be repeated for weight. As the athletes height influences weight there is a great chance that this variable is also correlated with the athletes performance.
+
+First, the histograms and summaries for each sex will be created.
+
+```{r}
+#Histograms
+ggplot(data = rio_athletes, aes(x = weight, fill = sex)) +
+  geom_histogram(alpha = 0.5, position = 'identity')
+
+#Summary
+by(rio_athletes$weight, rio_athletes$sex, summary)
+```
+
+The differences between mean and women weight distribution are much higher than the differences in height. 
+
+Next, it will be observed the differences for each sport.
+
+```{r}
+ggplot(aes(y = weight, x = sport, fill = sex), data = rio_athletes)+
+  geom_boxplot()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+The sports with highest median weights are basketball, handball, volleyball, rugby and rowing for both men and women. The ones with lowest meadian weights are gymnastics and triathlon.  
+There are a lot more outliers than in the case of height, specially for athletics.    
+
+Some sports events are based on the athletes weight: boxing, judo, taekwondo and weightlifting. In this cases, there will be winners for each weight range. Maybe there is some correlation between weight and performance within each range, but this dataset do not provide the information of which athlete competed in which event. In this way, these sports will be removed from this analysis. 
+
+In this analysis, the weight data for men and women will also be standardized by the mean. All women weight will be divided by 62.63 and all men height by 80.12.
+
+Initially the analysis will be global for all sports.
+
+```{r}
+#Removing the sports boxing, judo, taekwondo and weightlifting
+#Standardizing the weight by the mean
+#And creating a new dataframe grouped by the weight
+athletes_weight.grouped <- 
+  subset(rio_athletes,!(sport %in% c('boxing', 'judo', 'taekwondo',
+                                     'weightlifting'))) %>%
+  mutate(weight.std = ifelse(sex == 'female', weight/62.63, weight/80.12))%>%
+  group_by(weight.std) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  arrange(desc(mean_score)) 
+
+#Checking the dataframe:
+head(athletes_weight.grouped)
+```
+
+The new dataframe was properly created.  
+The mean score and mean number of medals will be plotted against the standardized weight.
+
+```{r}
+#Mean score
+ggplot(aes(x = weight.std, y = mean_score), data = athletes_weight.grouped)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+
+#Mean number of medals
+ggplot(aes(x = weight.std, y = mean_medals), data = athletes_weight.grouped)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+```
+
+The color in the plots represent the number of individuals in each group.
+The same way that occurred with the height plots, there are some peaks in the extremes probably because of groups with a very small number of individuals. In the next plots, groups with 10 or less athletes will be removed in a way that it is possible to observe the trend in the middle of the plots.   
+
+```{r}
+#Subset removing small groups:
+weight.groups_over_10 <- subset(athletes_weight.grouped, n>10)
+
+p1 <- ggplot(aes(x = weight.std, y = mean_score), 
+             data = weight.groups_over_10)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+
+p2 <- ggplot(aes(x = weight.std, y = mean_medals), 
+             data = weight.groups_over_10)+
+  geom_line()+
+  geom_point(aes(color = n))+
+  scale_colour_gradientn(colours = rainbow(5))
+
+grid.arrange(p1, p2, ncol=1)
+```
+
+It seems there is some correlation between the athletes result and the weight. It is not possible to determine with this data if this trend is caused by the athletes height or if the weight itself also influences the athletes performance. In order to come to a conclusion about what is causing the athletes with higher height and weight to have a better performance, some experimental test should be made. For now, it is possible to affirm only that there is a correlation between these variables and the athletes result and it is possible to investigate if athletes with the same height and different weights have different results. That will be done later in this report.  
+
+First, the Pearson correlation coefficient for the mean score will be calculated and tested.
+
+```{r}
+cor.test(weight.groups_over_10$weight.std, 
+         weight.groups_over_10$mean_score, 
+         alternative = 'two.sided',
+         method = 'pearson')
+```
+
+The Pearson correlation coefficient is 0.4284782. The correlation is strong. The two tailed hypothesis test returned p-value 3.35e-06 which means it is statistically significant. There is a correlation between the two variables. The higher the weight, more likely is the athlete to have a better performance. The 95% Confidence Interval for the true correlation coefficient is (0.2614486, 0.5705917).  
+
+Next the correlation coefficient will be calculated for the relation between weight and mean number of medals.
+
+```{r}
+cor.test(weight.groups_over_10$weight.std, 
+         weight.groups_over_10$mean_medals, 
+         alternative = 'two.sided',
+         method = 'pearson')
+```
+
+The test showed there is a correlation between these variables and the Pearson correlation coefficient is 0.6522811.
+
+The correlation will also be calculated for each sport, as done before with height. The data will be transformed one more time.
+
+```{r}
+#New dataframe grouped by sports and standard height
+athletes_sport_weight.grouped <- 
+  subset(rio_athletes,!(sport %in% c('boxing', 'judo', 'taekwondo',
+                                     'weightlifting'))) %>%
+  mutate(weight.std = ifelse(sex == 'female', weight/62.63, weight/80.12))%>%
+  group_by(sport, weight.std) %>%
+  summarise(total_score = sum(medal.score),
+            total_medals = sum(total.medals),
+            mean_score = mean(medal.score),
+            mean_medals = mean(total.medals),
+            n = n()) %>%
+  ungroup()
+
+#Removing small groups.
+athletes_sport_weight.grouped <- subset(athletes_sport_weight.grouped, n>3)
+
+#The dataframe must be modified and will be converted to a wide format.
+athletes_sport_weight.grouped <- athletes_sport_weight.grouped %>%
+  spread(sport, mean_score)
+
+#Checking part of the new dataframe:
+head(athletes_sport_weight.grouped)
+```
+
+Groups with 3 or less athletes were excluded.   
+The correlation for each case will be calculated:
+
+```{r}
+cor(as.matrix(athletes_sport_weight.grouped[, 1]),
+    as.matrix(athletes_sport_weight.grouped[, 6:29]),
+    use = 'pairwise.complete.obs')
+```
+
+The sports with very weak correlation coefficient are badminton, canoe, equestrian, fencing, handball, sailing, shooting and table tennis. The correlation test was not executed, but for these cases probably it would fail to reject the null hypothesis. It seems there is no correlation.  
+The sports with no correlation between weight and mean score are not all the same that have no correlation between height and mean score. That shows it is not only the height that is influencing this relationship.  
+
+The sports with the strongest correlations are cycling, gymnastics, modern pentathlon and triathlon. Gymnastics has a negative correlation, as well as football and golf.
+
+The same way as occurred to the investigation about height, the analysis showed a positive correlation between weight and the athlete performance but that may change according to the specific sport. In a general way, heavier athletes are more likely to have a better performance.
+
+In order to finish this investigation, it will be verified the relation between height, weight and the athletes score.
+
+```{r}
+#Ordering by medal score, in order to the higher scores appear in the top of the plot.
+rio_athletes <- arrange(rio_athletes, medal.score)
+
+#Plot
+ggplot(aes(x = weight, y = height), 
+       data = rio_athletes)+
+  geom_point(aes(color = medal.score))+
+  scale_x_continuous(limits = c(50, 110))+
+  scale_y_continuous(limits = c(1.50, 2.10))+
+  scale_colour_gradient(low = I('#FFCC99'), high = "black")
+  
+```
+
+Height and weight are naturally related.  
+The x and y axis were limited in order to have a better visualization of the center of the distribution. Some data in the extremes were omitted in this process.  
+The objective of the analysis of this plot was to verify if for athletes with the same height, the ones with higher weight have better performance and if for athletes with the same weight, the ones with higher height have better performance. If one of these cases were true, the red points would be concentrated in the top or the botton of the trend. However none of these cases were observed in the plot. The scores are very spread and the highest scores are concentrated in the middle of the trend.  
+
+
+## Final Plots and Summary
+
+In this section all the investigation results will be presented and three of the most interesting plots will be shown. First all the changes made to the original dataset will be reviwed. 
+
+**Changes made to the data**
+
+The dataset with information about the athletes of Rio 2016 Olympic Games had originally the following variables:
+
+"id", "name", "nationality", "sex", "dob", "height", "weight", "sport", gold", "silver", "bronze"
+
+The first modification made to the dataframe was to remove all rows that had missing values, since most of the cases were in the columns height and weight, that are very important variables for this investigation.  
+
+Some new variables were created during the analysis:  
+
+ + The date of birth (dob) was used to create the variable age. The age was calculated in years from the day the pearson was born until a reference date, which was the first day of the Olimpyc Games: 08/05/2016.  
+ + The variable total.medals was a sum of all the medals the athlete won, independently of the type of the medal.   
+ + The frequency values for 3, 4, 5 and 6 medals for the variable total.medals were very low compared to the cases 0, 1 and 2. In this way, the variable total.medals.bucket was created in order to have only three categories: 0, 1 and two or more medals. The level "two or more" represented the top 1% of the athletes, which are the ones with the highest performance.  
+ + The variable medal.score was one value that reflected how many medals of each type the athlete won. For each gold medal, the athlete received 100 points, for each silver 10 points, and for the bronze medals 1 point.  
+ + In order to simplify some plots the variable performance was created based on the medal.score. This variable separated the athletes in three groups:  
+ TOP1 represented the top 1% athletes with the best results. The ones with score 100 or higher.  
+ MED represented the medium performance athletes, the ones that had at least one medal but none was gold.  
+ BAD represented the athletes that got no medals.  
+ 
+Besides the new variables, some modifications were made to the data during the analysis. The dataframe was grouped by different variables, transformed to a wide format, arranged based on a variable and conditional summaries were calculated. All these transformations were described in this report. In all the cases the original dataframe was preserved and new dataframes were created, with an exception when the original dataframe rio_athletes was arranged based on the medal.score.
+
+**Statistical tests**
+
+Statisticall tests were executed in order to define the correlation between the mean medal score and the variables height and weight. These tests considered the following assumptions:
+
+ - The variables are independent.
+ - The population is normally distributed.
+
+The tests executed are described below:  
+
+1. The athletes height and the mean medal score are positively correlated, r(92) = .49,  p < .01.  
+2. The athletes height and the mean number of medals are positively correlated, r(92) = .58,  p < .01.  
+3. The athletes weight and the mean medal score are positively correlated, r(107) = .43,  p < .01. 
+4. The athletes weight and the mean number of medals are positively correlated, r(107) = .65,  p < .01. 
+
+**Final Plots**
+
+Three importante plots created during the analysis will be reviewed in this section. 
+
+The first one is a plot created during the investigation of the criteria that would be used to evaluate the athletes performance. Two criteria were used: the medal score and the total number of medals.   
+According to the medal score criterion, athletes with score 100 or higher represent 1% of the total of athletes that competed and are the ones with the best performance. Those are the athletes with at least one gold medal.   
+According to the total number of medals criterion, the 1% of the athletes with better performance would be the ones with two or more medals of any type.  
+
+The investigation showed that the total number of medals criterion is not fare since some sports do not allow the athletes to compete for more than one medal.
+
+The next plot shows the number of medals of each athlete separated by sport.  
+Colors were added to the original plot. They indicate the performance of the athlete. This way it is easier to compare the two criteria.
+
+```{r}
+ggplot(aes(x = sport, y = total.medals, color = performance), 
+       data = rio_athletes)+
+  geom_point(alpha = 1/3, position = position_jitter(h=0.3, w= 0.3))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 11), 
+        plot.title = element_text(hjust = 0.5, size = 18),
+        legend.title = element_text(size = 13),
+        legend.text = element_text(size = 11),
+        axis.title = element_text(size = 13),
+        axis.text.y = element_text(size = 11))+
+  scale_colour_manual(values=c("#FFFF00", "#0066FF", "#FF3300"),
+                      guide = guide_legend(reverse = T),
+                      labels=c("Medal Score = 0", 
+                               "0 < Medal Score < 100", 
+                               "Medal Score >= 100"),
+                      name = 'Performance \nof the athlete')+
+  labs(title='Number of medals of the athletes per sport',
+       x="Sport",y="Total Number of Medals")
+```
+
+This plot shows that only a few sports have athletes with more than one medal. In most of them, the athletes got one or zero medals.  
+The athletes marked in red are the ones considered top 1% according to the medal score criterion. There are athletes with 2 and 3 medals that do not have score 100 or above. The same way, many athletes have only one medal and have score 100. These two cases show athletes that are considered top 1% according to one criterion but not according to the other.  
+
+The medal score criterion was defined as the main criterion to evaluate performance since it is valid for all sports.
+
+The second plot that will be reviewed shows the correlation between the athletes height and the performance.
+
+```{r}
+#Subset of the dataframe removing groups with 10 or less athletes
+height.groups_over_10 <- subset(athletes_height.grouped, n>10)
+
+p1 <- ggplot(aes(x = height.std, y = mean_score), 
+             data = height.groups_over_10)+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  labs(x="Athlete height standardized by the mean for each sex",
+       y="Mean medal score ")+
+  theme(axis.text = element_text(size = 11),
+        axis.title = element_text(size = 13))
+
+p2 <- ggplot(aes(x = height.std, y = mean_medals), 
+             data = height.groups_over_10)+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  labs(x="Athlete height standardized by the mean for each sex",
+       y="Mean total number \nof medals")+
+    theme(axis.text = element_text(size = 11),
+        axis.title = element_text(size = 13))
+
+grid.arrange(p1, p2, ncol=1, top = textGrob("Correlation between height and performance of the athlete", gp=gpar(fontsize=18)))
+```
+
+This plot uses the standardized height in order to include men and women in the same plot. For each value of athlete height, it was plot the mean medal score (above) and mean total number of medals (below).  
+The original plot was colored in order to indicate the number of individuals in each group of height but this is not necessary anymore, since groups with 10 or less individuals were removed from the plot and it is being considered that all other groups have valid values and a sufficient size for the sample.  
+A line of best fit was added to the plot. In this way, the trend is clear between the variables.  
+
+The same plot was made for weight and it also showed a trend.  
+
+It is important to mention that during the analyses it was observed that in spite of the correlation found between the athlete performance and height and weight, that may vary with the sport. Some sports presented a negative correlation between these variables and some presented none.
+
+The last plot will show one important finding: that there is no relation between age and the athlete performance. One could believe that older athletes could have a better chance to win medals since they have more experience and more years of training. Or instead one could think that younger athletes could have more chances since their physical conditions are supposed to be better.  
+
+The investigation of this dataset reached the conclusion that the age does not affect the athletes performance and that can be observed in the plot below.
+
+```{r}
+ggplot(aes(x = sport, y = age, group = 1, colour = performance), 
+       data = rio_athletes)+
+  geom_point(alpha = 1/2, position = position_jitter(h=0.5, w= 0.4))+
+  geom_line(stat = 'summary', fun.y = mean)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 11),
+        plot.title = element_text(hjust = 0.5, size = 18),
+        legend.title = element_text(size = 13),
+        legend.text = element_text(size = 11),
+        axis.title = element_text(size = 13),
+        axis.text.y = element_text(size = 11))+
+  scale_colour_manual(values=c("#FFFF00", "#0066FF", "#FF3300"),
+                      guide = guide_legend(reverse = T),
+                      labels=c("Medal Score = 0", 
+                               "0 < Medal Score < 100", 
+                               "Medal Score >= 100"),
+                      name = 'Performance \nof the athlete')+
+  labs(title='Performance of the athletes distributed \nby age and sport',
+       x="Sport",y="Age (years)")
+```
+
+This plot shows that the best athletes of each sport are spread through all the range of ages, with only a few exceptions.
+
+The variable nationality was also analyzed and compared to the athletes performance. It was observed that the top 1% athletes come from 29% of the countries but most of them are concentrated in only a few countries: USA, RUS, GBR, GER, CHN and JAM. That shows that the nationality also may influence the athlete results.
+
+
+## Reflection
+
+This work objective was to understand if some characteristics of the athletes could make one more likely to have a better performance than another.  
+The first step was to define how the performance of the athlete would be measured. Two criteria were used, the medal score (that represents the type of medals) as the main criterion and the total number of medals as secondary.   
+
+Once the criteria were defined, the analysis could start. The following variables were related to the performance: nationality, age, height and weight.  
+One difficulty found during the analysis was that the relationship between these variables and the performance depends on the sport. The characteristic of the relationship varies with the sport. Because of that the investigation was made in a general way for all athletes but at some moment it was also compared how it differs from one sport to another.  
+
+One difficulty found regarding the development of the plots was that the most important variable, the medal score, is very discrete and highly concentrated at zero. That made very hard to create good visualizations of this data. In some cases the axes scales had to be adjusted using square root or log.  
+The athletes with zero medals could not be excluded from the plots and analyses because it matters to the investigation which are their characteristics, in order to compare with the best athletes.  
+Another problem was that the variable nationality has 200 different levels. It was also hard to build usefull and clear plots in this case.  
+
+This Exploratory Data Analysis could verify that the height and weight of the athletes are correlated with the performance, while the age is not correlated, which was the greatest surprise of the analysis, once it was expected that the age would influence the performance. It was also observed that the nationality of the athlete seems to have an influence in his results, although no statisticall test was executed in this case.  
+
+It was also verified if the variables that are related to the performance are related to each other.  
+The height and weight are clearly correlated, since a person height affects the weight, but the investigation showed that the correlation between height and performance and weight and performance have different characteristics, despite having some similarities. That shows that there are other factors related to weight that may influence the correlation besides the height. In this way, these two variables and the correlations with the performance were treated as different effects.  
+It was also verified if the fact that taller athletes usually have a better result is related with their nationality. The countries with higher mean height were listed and compared with the countries that concentrate most of the high performance athletes. However this comparison showed that they are not the same countries. The correlation between height and medal score seems not to be influenced by the nationality.
+
+There are more analyses that could be explored related to this data. Some suggestions are listed below:
+
+ - The correlation analyses and tests could be made separatelly for each sport.  
+ - It could be investigated how the best athletes differ from the others with the same nationality. In the case of countries with a high number of athletes.  
+ - A model could be built to predict an athlete performance based on his characteristics.  
+ - Future works could involve the association of this dataset with two others dataset about the events and countries that are available to download at the same link.  
+ 
+There are many other variables and characteristics of the athletes that influences the performance and are not available in this dataset. This analysis was limited to the available data and only considered a few aspects of the athlete. All the reasons that would cause the athlete to be more likely to have a better result are very complex and they are widely studied and considered in the professional athletes training.
+
+The variables investigated, specially nationality and height, are usually not changeable for a person. However the analysis also showed that although there are some correlations and patterns, the top 1% athletes can come from any country and have very diverse characteristics. The most valuable conclusion drawn from this investigation is that these are not the most important variables that will define the results of the athlete. Hopefully the most important variables are changeable and depends on the athlete, but there is no data available in this dataset in order to investigate this.
+
+
+## References
+
+This section lists all the references used in this project:  
+
+Dataset:  
+- https://www.kaggle.com/rio2016/olympic-games  
+
+Articles about influences over athletes performance:  
+- http://healthyliving.azcentral.com/list-factors-influencing-athletic-performance-4356.html  
+- http://digitalcommons.liberty.edu/cgi/viewcontent.cgi?article=1362&context=honors  
+- http://watchfit.com/exercise/factors-affect-athletic-performance/  
+- http://www.eis2win.co.uk/expertise/performance-analysis/  
+- http://www.sportni.net/performance/sports-institute-northern-ireland/performance-science/performance-analysis/  
+
+Olympics:  
+- https://www.olympic.org/rio-2016  
+- https://en.wikipedia.org/wiki/Women_at_the_Olympics  
+- https://en.wikipedia.org/wiki/International_Olympic_Committee_and_gender_equality_in_sports#cite_note-oc-tv.org-13  
+- http://www.bbc.com/sport/olympics/rio-2016/medals/countries  
+- https://en.wikipedia.org/wiki/Olympic_weightlifting  
+
+R:  
+- https://stackoverflow.com/questions/14454476/get-the-difference-between-dates-in-terms-of-weeks-months-quarters-and-years  
+- https://stackoverflow.com/questions/20410768/how-to-correlate-one-variable-to-all-other-variables-on-r   
+- http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/  
+- https://rpubs.com/bradleyboehmke/data_wrangling  
+- https://stackoverflow.com/questions/15706281/controlling-order-of-points-in-ggplot2-in-r  
+- https://stackoverflow.com/questions/40675778/center-plot-title-in-ggplot2  
